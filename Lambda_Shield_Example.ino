@@ -21,7 +21,7 @@
     
     info@bylund-automotive.com
 
-    Revision history:
+    Version history:
     2017-12-30        v1.0.0        First release to GitHub.
     2018-10-25        v1.1.0        Implemented an improved lambda conversion.
     2019-04-19        v1.2.0        Implemented an improved oxygen conversion.

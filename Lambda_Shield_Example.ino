@@ -25,6 +25,7 @@
     2017-12-30        v1.0.0        First release to GitHub.
     2018-10-25        v1.1.0        Implemented an improved lambda conversion.
     2019-04-19        v1.2.0        Implemented an improved oxygen conversion.
+    2019-06-26        v1.3.0        Adjusted PID regulation of heater.
 */
 
 //Define included headers.
@@ -70,8 +71,8 @@ int CJ125_Status = 0;                                               /* Latest st
 //PID regulation variables.
 int dState;                                                         /* Last position input. */
 int iState;                                                         /* Integrator state. */
-const int iMax = 255;                                               /* Maximum allowable integrator state. */
-const int iMin = 0;                                                 /* Minimum allowable integrator state. */
+const int iMax = 250;                                               /* Maximum allowable integrator state. */
+const int iMin = -250;                                              /* Minimum allowable integrator state. */
 const float pGain = 120;                                            /* Proportional gain. Default = 120*/
 const float iGain = 0.8;                                            /* Integral gain. Default = 0.8*/
 const float dGain = 10;                                             /* Derivative gain. Default = 10*/

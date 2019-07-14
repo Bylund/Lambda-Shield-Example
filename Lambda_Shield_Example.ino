@@ -26,6 +26,7 @@
     2018-10-25        v1.1.0        Implemented an improved lambda conversion.
     2019-04-19        v1.2.0        Implemented an improved oxygen conversion.
     2019-06-26        v1.3.0        Adjusted PID regulation of heater.
+    2019-07-14        v1.3.1        Modified Lookup_Lambda() function.
 */
 
 //Define included headers.
@@ -218,6 +219,14 @@ float Lookup_Lambda(int Input_ADC) {
     //Validate ADC range for lookup table.
     if (Input_ADC >= 39 && Input_ADC <= 791) {
       LAMBDA_VALUE = pgm_read_float_near(Lambda_Conversion + (Input_ADC-39));
+    }
+    
+    if (Input_ADC > 791) {
+      LAMBDA_VALUE = 10.119;
+    }
+
+    if (Input_ADC < 39) {
+      LAMBDA_VALUE = 0.750;
     }
     
     //Return value.

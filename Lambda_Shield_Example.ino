@@ -27,6 +27,7 @@
     2019-04-19        v1.2.0        Implemented an improved oxygen conversion.
     2019-06-26        v1.3.0        Adjusted PID regulation of heater.
     2019-07-14        v1.3.1        Modified Lookup_Lambda() function.
+    2019-07-14        v1.4.0        Implemented an analog output function.
 */
 
 //Define included headers.
@@ -51,6 +52,7 @@
 #define           LED_STATUS_POWER                    7             /* Pin used for power the status LED, indicating we have power. */
 #define           LED_STATUS_HEATER                   6             /* Pin used for the heater status LED, indicating heater activity. */
 #define           HEATER_OUTPUT_PIN                   5             /* Pin used for the PWM output to the heater circuit. */
+#define           ANALOG_OUTPUT_PIN                   3             /* Pin used for the PWM to the 0-1V analog output. */
 #define           UB_ANALOG_INPUT_PIN                 2             /* Analog input for power supply.*/
 #define           UR_ANALOG_INPUT_PIN                 1             /* Analog input for temperature.*/
 #define           UA_ANALOG_INPUT_PIN                 0             /* Analog input for lambda.*/
@@ -210,6 +212,33 @@ int Heater_PID_Control(int input) {
   
 }
 
+//Displays the AFR value on an external narrowband lambda gauge with an (RC-filtered) 0-1V PWM signal from ANALOG_OUTPUT_PIN. 0V = AFR 20.00. 1V = AFR 10.00.
+void UpdateAnalogOutput() {
+
+  //Local constants.
+  const float AirFuelRatioOctane = 14.70;
+  const int maximumOutput = 50; /* 1V */
+  const int minimumOutput = 0;  /* 0V */
+  const float k = -0.1;
+  const float m = 2;
+  
+  //Local variables.
+  int analogOutput = 0;
+  float lambdaAFR = Lookup_Lambda(adcValue_UA) * AirFuelRatioOctane;
+
+  //Convert lambda value to PWM output.
+  if (lambdaAFR >= 20) analogOutput = minimumOutput;
+  if (lambdaAFR <= 10) analogOutput = maximumOutput;
+  if (lambdaAFR > 10 && lambdaAFR < 20) analogOutput = (int)((((k * lambdaAFR) + m) / 5.0) * 255 );
+
+  //Make sure we do not exceed maximum values.
+  if (analogOutput > maximumOutput) analogOutput = maximumOutput;
+  if (analogOutput < minimumOutput) analogOutput = minimumOutput;
+  
+  //Set PWM output.
+  analogWrite(ANALOG_OUTPUT_PIN, analogOutput);
+}
+
 //Lookup Lambda Value.
 float Lookup_Lambda(int Input_ADC) {
   
@@ -259,7 +288,7 @@ void setup() {
   Serial.begin(9600);
 
   //Set up SPI.
-  SPI.begin();  /* Note, SPI will disable the bult in LED*/
+  SPI.begin();  /* Note, SPI will disable the bult in LED. */
   SPI.setClockDivider(SPI_CLOCK_DIV128);
   SPI.setBitOrder(MSBFIRST);
   SPI.setDataMode(SPI_MODE1);
@@ -274,8 +303,9 @@ void setup() {
   digitalWrite(CJ125_NSS_PIN, HIGH);
   digitalWrite(LED_STATUS_POWER, LOW);
   digitalWrite(LED_STATUS_HEATER, LOW);
-  analogWrite(HEATER_OUTPUT_PIN, 0); /* PWM is off before we know power status.*/
-
+  analogWrite(HEATER_OUTPUT_PIN, 0); /* PWM is initially off. */
+  analogWrite(ANALOG_OUTPUT_PIN, 0); /* PWM is initially off. */
+    
   //Start of operation. (Test LED's).
   Serial.print("Device reset.\n\r");
   digitalWrite(LED_STATUS_POWER, HIGH);
@@ -324,6 +354,10 @@ void start() {
   adcValue_UA_Optimal = analogRead(UA_ANALOG_INPUT_PIN);
   adcValue_UR_Optimal = analogRead(UR_ANALOG_INPUT_PIN);
   
+  //Update analog output, display the optimal value.
+  adcValue_UA = adcValue_UA_Optimal;
+  UpdateAnalogOutput();
+    
   //Set CJ125 in normal operation mode.
   //COM_SPI(CJ125_INIT_REG1_MODE_NORMAL_V8);  /* V=0 */
   COM_SPI(CJ125_INIT_REG1_MODE_NORMAL_V17);  /* V=1 */
@@ -457,6 +491,9 @@ void loop() {
     //Calculate Oxygen Content.
     float OXYGEN_CONTENT = Lookup_Oxygen(adcValue_UA);
 
+    //Update analog output.
+    UpdateAnalogOutput();
+      
     //Display information if no errors is reported.
     if (CJ125_Status == CJ125_DIAG_REG_STATUS_OK) {
       

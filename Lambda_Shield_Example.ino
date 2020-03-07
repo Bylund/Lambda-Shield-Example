@@ -310,8 +310,7 @@ void loop() {
     //Output LED's.
     digitalWrite(LED_STATUS_POWER, HIGH);  
     digitalWrite(LED_STATUS_HEATER, HIGH);
-    
-    //Update heater status.
+
     HeaterStatus = 2;
     
   }

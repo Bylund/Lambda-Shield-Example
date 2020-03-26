@@ -1,7 +1,7 @@
 /*
     Example code compatible with the Lambda Shield for Arduino.
     
-    Copyright (C) 2017 - 2019 Bylund Automotive AB.
+    Copyright (C) 2017 - 2020 Bylund Automotive AB.
     
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
     2019-06-26        v1.3.0        Adjusted PID regulation of heater.
     2019-07-14        v1.3.1        Modified Lookup_Lambda() function.
     2019-07-14        v1.4.0        Implemented an analog output function.
+    2020-03-26        v1.4.1        Optimized analog output function.
 */
 
 //Define included headers.
@@ -217,19 +218,15 @@ void UpdateAnalogOutput() {
 
   //Local constants.
   const float AirFuelRatioOctane = 14.70;
-  const int maximumOutput = 50; /* 1V */
+  const int maximumOutput = 51; /* 1V */
   const int minimumOutput = 0;  /* 0V */
-  const float k = -0.1;
-  const float m = 2;
-  
+
   //Local variables.
   int analogOutput = 0;
   float lambdaAFR = Lookup_Lambda(adcValue_UA) * AirFuelRatioOctane;
 
   //Convert lambda value to PWM output.
-  if (lambdaAFR >= 20) analogOutput = minimumOutput;
-  if (lambdaAFR <= 10) analogOutput = maximumOutput;
-  if (lambdaAFR > 10 && lambdaAFR < 20) analogOutput = (int)((((k * lambdaAFR) + m) / 5.0) * 255 );
+  analogOutput = map(lambdaAFR * 100, 2000, 1000, minimumOutput, maximumOutput);
 
   //Make sure we do not exceed maximum values.
   if (analogOutput > maximumOutput) analogOutput = maximumOutput;

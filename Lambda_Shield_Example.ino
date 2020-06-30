@@ -29,10 +29,12 @@
     2019-07-14        v1.3.1        Modified Lookup_Lambda() function.
     2019-07-14        v1.4.0        Implemented an analog output function.
     2020-03-26        v1.4.1        Optimized analog output function.
+    2020-06-30        v1.5.0        Implemented support for data logging.
 */
 
 //Define included headers.
 #include <SPI.h>
+#include <SD.h>
 
 //Define CJ125 registers used.
 #define           CJ125_IDENT_REG_REQUEST             0x4800        /* Identify request, gives revision of the chip. */
@@ -49,7 +51,8 @@
 #define           CJ125_INIT_REG1_STATUS_1            0x2889        /* The response of the init register when V=17 amplification is in use. */
 
 //Define pin assignments.
-#define           CJ125_NSS_PIN                       10            /* Pin used for chip select in SPI communication. */
+#define           CJ125_CS_PIN                        10            /* Pin used for chip select of CJ125 in SPI communication. */
+#define           SDCARD_CS_PIN                       9             /* Pin used for chip select of SD-card in SPI communication. */
 #define           LED_STATUS_POWER                    7             /* Pin used for power the status LED, indicating we have power. */
 #define           LED_STATUS_HEATER                   6             /* Pin used for the heater status LED, indicating heater activity. */
 #define           HEATER_OUTPUT_PIN                   5             /* Pin used for the PWM output to the heater circuit. */
@@ -71,6 +74,7 @@ int adcValue_UR_Optimal = 0;                                        /* UR ADC va
 int HeaterOutput = 0;                                               /* Current PWM output value (0-255) of the heater output pin */
 int serial_counter = 0;                                             /* Counter used to calculate refresh rate on the serial output */
 int CJ125_Status = 0;                                               /* Latest stored DIAG registry response from the CJ125 */
+bool logEnabled = false;                                            /* Variable used for setting data logging enable or disabled. */
 
 //PID regulation variables.
 int dState;                                                         /* Last position input. */
@@ -158,18 +162,19 @@ const PROGMEM float Oxygen_Conversion[548] {
 //Function for transfering SPI data to the CJ125.
 uint16_t COM_SPI(uint16_t TX_data) {
 
-  //Set chip select pin low, chip in use.
-  digitalWrite(CJ125_NSS_PIN, LOW);
+  //Configure SPI for CJ125 controller.
+  SPI.setDataMode(SPI_MODE1);
+  SPI.setClockDivider(SPI_CLOCK_DIV128);
+  
+  //Set chip select pin low, chip in use. 
+  digitalWrite(CJ125_CS_PIN, LOW);
 
-  //Transmit and receive.
-  byte highByte = SPI.transfer(TX_data >> 8);
-  byte lowByte = SPI.transfer(TX_data & 0xff);
+  //Transmit request.
+  uint16_t Response =  SPI.transfer16(TX_data);
 
   //Set chip select pin high, chip not in use.
-  digitalWrite(CJ125_NSS_PIN, HIGH);
+  digitalWrite(CJ125_CS_PIN, HIGH);
 
-  //Assemble response in to a 16bit integer and return the value.
-  uint16_t Response = (highByte << 8) + lowByte;
   return Response;
   
 }
@@ -278,6 +283,33 @@ float Lookup_Oxygen(int Input_ADC) {
     
 }
 
+//Data logging function.
+void logData(String logString) {
+
+  //Connect to SD-Card.
+  if ( SD.begin(SDCARD_CS_PIN) ) {
+
+    //Open file.
+    File logFile = SD.open("log.txt", FILE_WRITE);
+
+    //Store data.
+    logFile.println(logString);
+
+    //Close file.
+    logFile.close();
+
+    //Flush SPI, required when switching between modes.
+    COM_SPI(0x00);
+    
+  } else {
+    
+    //Error handling.
+    Serial.println("Error accessing SD-card.");  
+    
+  }
+  
+}
+
 //Function to set up device for operation.
 void setup() {
   
@@ -286,18 +318,18 @@ void setup() {
 
   //Set up SPI.
   SPI.begin();  /* Note, SPI will disable the bult in LED. */
-  SPI.setClockDivider(SPI_CLOCK_DIV128);
   SPI.setBitOrder(MSBFIRST);
-  SPI.setDataMode(SPI_MODE1);
   
   //Set up digital output pins.
-  pinMode(CJ125_NSS_PIN, OUTPUT);  
+  pinMode(CJ125_CS_PIN, OUTPUT);  
+  pinMode(SDCARD_CS_PIN, OUTPUT); 
   pinMode(LED_STATUS_POWER, OUTPUT);
   pinMode(LED_STATUS_HEATER, OUTPUT);
   pinMode(HEATER_OUTPUT_PIN, OUTPUT);
 
   //Set initial values.
-  digitalWrite(CJ125_NSS_PIN, HIGH);
+  digitalWrite(CJ125_CS_PIN, HIGH);
+  digitalWrite(SDCARD_CS_PIN, HIGH);
   digitalWrite(LED_STATUS_POWER, LOW);
   digitalWrite(LED_STATUS_HEATER, LOW);
   analogWrite(HEATER_OUTPUT_PIN, 0); /* PWM is initially off. */
@@ -311,6 +343,18 @@ void setup() {
   digitalWrite(LED_STATUS_POWER, LOW);
   digitalWrite(LED_STATUS_HEATER, LOW);
 
+  //Configure data logging.
+  if ( SD.begin(SDCARD_CS_PIN) ) {
+    
+    //Enable data logging.
+    Serial.println("Data logging enabled.");
+    logEnabled = true;
+
+    //Flush SPI, required when switching between modes.
+    COM_SPI(0x00);
+    
+  }
+  
   //Start main function.
   start();
 
@@ -318,20 +362,23 @@ void setup() {
 
 void start() {
   
-  //Wait until everything is ready. Read CJ125 multiple times with delay in between to let it initialize. Otherwise responds OK.
-  int n = 0;
-  while (adcValue_UB < UBAT_MIN || CJ125_Status != CJ125_DIAG_REG_STATUS_OK || n < 9) {
+  //Wait until everything is ready.
+  while (adcValue_UB < UBAT_MIN || CJ125_Status != CJ125_DIAG_REG_STATUS_OK) {
     
     //Read CJ125 diagnostic register from SPI.
     CJ125_Status = COM_SPI(CJ125_DIAG_REG_REQUEST);
 
+    //Error handling.
+    if (CJ125_Status != CJ125_DIAG_REG_STATUS_OK) {
+      Serial.print("Error, CJ125: 0x");
+      Serial.print(CJ125_Status, HEX);
+      Serial.print("\n\r");
+    }
+    
     //Read input voltage.
     adcValue_UB = analogRead(UB_ANALOG_INPUT_PIN);
 
-    //Delay and increment counter.
-    delay(100);
-    n++;
-    
+    delay(1000);
   }
 
   //Start of operation. (Start Power LED).
@@ -494,35 +541,38 @@ void loop() {
     //Display information if no errors is reported.
     if (CJ125_Status == CJ125_DIAG_REG_STATUS_OK) {
       
-      //Output values.
-      Serial.print("Measuring, CJ125: 0x");
-      Serial.print(CJ125_Status, HEX);
-      Serial.print(", UA_ADC: ");
-      Serial.print(adcValue_UA);
-      Serial.print(", UR_ADC: ");
-      Serial.print(adcValue_UR);
-      Serial.print(", UBat_ADC: ");
-      Serial.print(adcValue_UB);
-      
+      //Assemble data.
+      String txString = "Measuring, CJ125: 0x";
+      txString += String(CJ125_Status, HEX);
+      txString += ", UA_ADC: ";
+      txString += String(adcValue_UA, DEC);
+      txString += ", UR_ADC: ";
+      txString += String(adcValue_UR, DEC);
+      txString += ", UB_ADC: ";
+      txString += String(adcValue_UB, DEC);
+
       //Display lambda value unless out of range.
       if (adcValue_UA >= 39 && adcValue_UA <= 791) {
-          Serial.print(", Lambda: ");
-          Serial.print(LAMBDA_VALUE, 2);
+          txString += ", Lambda: ";
+          txString += String(LAMBDA_VALUE, 2);
       } else {
-          Serial.print(", Lambda: -");
+          txString += ", Lambda: -";
       }
 
       //Display oxygen unless out of range.
       if (adcValue_UA >= 307) {
-        Serial.print(", Oxygen: ");
-        Serial.print(OXYGEN_CONTENT, 2);
-        Serial.print("%");
+        txString += ", Oxygen: ";
+        txString += String(OXYGEN_CONTENT, 2);
+        txString += "%";
       } else {
-        Serial.print(", Oxygen: -");
+        txString += ", Oxygen: -";
       }
       
-      //EOL.
-      Serial.print("\n\r");
+      //Output string
+      Serial.println(txString);
+
+      //Log string.
+      if (logEnabled == true) logData(txString);
       
     } else {
       
